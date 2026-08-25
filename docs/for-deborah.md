@@ -5,13 +5,10 @@ run by four AI DJs — on the Sonos speakers in your house.
 
 ## First time
 
-1. Open the link you were sent, on your **Android phone**, and tap the
-   `.apk` file to download it.
-2. Open the downloaded file. Android will say it can't install apps from this
-   source — tap **Settings**, turn on **Allow from this source**, then go back
-   and tap **Install**. You only ever do this once.
-3. Open **Andon Radio**. It finds your Sonos speakers by itself; there is
-   nothing to set up and no account to create.
+It's already installed — nothing for you to do. Just open **Andon Radio**.
+
+It finds your Sonos speakers by itself; there is nothing to set up and no
+account to create.
 
 Your phone needs to be on the **same Wi-Fi as the speakers** — not a guest
 network, and not mobile data.
@@ -29,7 +26,11 @@ network, and not mobile data.
 
 ## Updates
 
-The app checks for new versions itself. When there's one, a bar appears at the
-top saying **"Version X is available"** — tap **Update**, then tap the
-downloaded file to install it over the old one. Nothing is lost and you won't
-have to change any settings again.
+Your phone has **Advanced Protection** switched on, which is a good thing — it
+stops apps being installed from outside the Play Store. It also means you
+can't install updates to this one yourself, and you shouldn't turn it off to
+try.
+
+If a bar appears at the top saying **"Version X is available"**, just mention
+it — the update gets pushed to your phone over the network in a few seconds.
+Nothing is lost when it updates, and you won't have to change any settings.

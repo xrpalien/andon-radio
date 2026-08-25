@@ -208,6 +208,30 @@ Two things this depends on:
 
 Hand `docs/for-deborah.md` to whoever is installing it.
 
+### When the phone has Advanced Protection
+
+Google's Advanced Protection (Android 16+) blocks sideloading outright, and
+deliberately offers **no per-app exception** — the "Allow from this source"
+toggles stay greyed out. The in-app update banner still appears on such a
+phone, but tapping **Update** leads nowhere: the download succeeds and the
+install is refused.
+
+ADB is unaffected, because it does not go through that permission at all:
+
+```
+tool/push-to-device.sh                    # the only connected device
+tool/push-to-device.sh 192.168.1.33:39839
+```
+
+It reads the latest release, compares it against what is installed, downloads
+the APK if needed and installs it with `-r` so saved settings survive.
+Verified on a Pixel 10 Pro running Android 17 with Advanced Protection on.
+
+This does mean updates need someone at a terminal. If that becomes a chore,
+a Play Console internal testing track (a one-off $25) is the clean fix:
+apps from Play install and update normally under Advanced Protection, and the
+signing key and release flow here carry over unchanged.
+
 ### Signing — the part that bites later
 
 Android only installs an update over an existing app when both are signed with
