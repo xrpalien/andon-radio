@@ -76,4 +76,10 @@ gh release create "v$VERSION" "$OUT" \
 
 echo
 echo "Published v$VERSION."
-echo "Deborah's app will offer the update the next time she opens it."
+echo
+# A phone with Advanced Protection cannot install the download the in-app
+# banner points at, so say what actually has to happen rather than implying
+# it will sort itself out.
+echo "Phones that can sideload will offer the update on next open."
+echo "For one with Advanced Protection, push it over ADB:"
+echo "    tool/push-to-device.sh""
