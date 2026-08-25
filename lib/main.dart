@@ -16,7 +16,8 @@ class AndonRadioApp extends StatefulWidget {
   State<AndonRadioApp> createState() => _AndonRadioAppState();
 }
 
-class _AndonRadioAppState extends State<AndonRadioApp> {
+class _AndonRadioAppState extends State<AndonRadioApp>
+    with WidgetsBindingObserver {
   late final RadioController _controller =
       widget.controller ?? RadioController();
 
@@ -26,11 +27,35 @@ class _AndonRadioAppState extends State<AndonRadioApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _controller.init();
+  }
+
+  /// Poll only while the app is actually in front.
+  ///
+  /// Two people share these speakers, so the screen has to catch up with
+  /// whatever the other one did - and the moment it is most likely to be out
+  /// of date is the moment it comes back into view. Stopping the timer in the
+  /// background keeps that from costing anything while nobody is looking.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.resumed:
+        _controller.resumePolling();
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        _controller.pausePolling();
+      case AppLifecycleState.inactive:
+        // Transient - a notification shade pulled down, a permission dialog.
+        // Not worth tearing the timer down for.
+        break;
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (_ownsController) _controller.dispose();
     super.dispose();
   }

@@ -163,6 +163,42 @@ Volume also re-syncs on the poll, so changing it from the Sonos app or the
 speaker's own buttons doesn't leave the dial stale — with a short suppression
 window so a poll in flight can't snap the dial back under your finger.
 
+## Two phones at once
+
+The house has more than one person in it, so the app is built on the
+assumption that the state it is showing may have been changed by someone
+else a second ago — from the other phone, the Sonos app, or the buttons on
+the speaker itself.
+
+Every poll re-reads the household, in this order:
+
+1. what each station is playing (Andon's API)
+2. **grouping** — which decides who coordinates
+3. transport state and current station, asked of that coordinator
+4. volume and mute for the selected room
+
+Grouping has to come first: it determines which player is the coordinator,
+and the coordinator is who gets asked about transport and who receives
+commands. A stale group meant commands addressed to a player that had
+quietly become a follower, where they are silently dropped.
+
+Polling runs at 5s while the app is in front and **stops entirely** in the
+background, with an immediate refresh on resume — the moment the screen is
+most likely to be out of date is the moment it comes back into view. That is
+both livelier and cheaper than the slower always-on timer it replaced.
+
+Two details worth keeping:
+
+- The room list only rebuilds when the grouping actually changed, compared
+  via a cheap signature. Rebuilding on every poll fights the user while they
+  are looking at it.
+- A volume poll is suppressed for 3s after the knob is touched, so a reply
+  already in flight cannot snap the dial back under their finger.
+
+Ticks are asynchronous, so one can still be in flight when the app closes.
+All notifications go through a disposal guard; without it, closing the app
+mid-poll threw.
+
 ## Android specifics
 
 - Sonos control is plain HTTP, which Android blocks by default.

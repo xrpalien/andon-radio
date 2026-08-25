@@ -126,6 +126,88 @@ void main() {
     });
   });
 
+  group('keeping up with the other phone', () {
+    test('notices grouping changed elsewhere', () async {
+      final discovery = _FakeDiscovery(household);
+      final controller = RadioController(
+        discovery: discovery,
+        control: _RecordingControl(),
+        api: _FakeApi(),
+        updates: _NoUpdates(),
+      );
+      await controller.init();
+
+      final gazebo = household.allZones.firstWhere((z) => z.name == 'Gazebo');
+      await controller.selectZone(gazebo);
+      expect(controller.selectedGroup!.isSolo, isTrue);
+
+      // The other person groups the Roam with the Gazebo.
+      final roam = household.allZones.firstWhere((z) => z.name == 'Sonos Roam');
+      discovery.household = Household(
+        groups: [
+          for (final g in household.groups)
+            if (!g.contains(roam) && !g.contains(gazebo)) g,
+          ZoneGroup(coordinator: gazebo, members: [gazebo, roam]),
+        ],
+      );
+
+      await controller.refreshTopology();
+
+      expect(controller.selectedGroup!.isSolo, isFalse);
+      expect(controller.isGroupedWithSelection(roam), isTrue);
+
+      controller.dispose();
+    });
+
+    test(
+      'follows the coordinator when the selected room is regrouped',
+      () async {
+        final discovery = _FakeDiscovery(household);
+        final control = _RecordingControl();
+        final controller = RadioController(
+          discovery: discovery,
+          control: control,
+          api: _FakeApi(),
+          updates: _NoUpdates(),
+        );
+        await controller.init();
+
+        final gazebo = household.allZones.firstWhere((z) => z.name == 'Gazebo');
+        final kitchen = household.allZones.firstWhere(
+          (z) => z.name == 'Kitchen',
+        );
+        await controller.selectZone(gazebo);
+
+        // The other person puts the Gazebo behind the Kitchen. Commands for it
+        // must now go to the Kitchen, or they are silently dropped.
+        discovery.household = Household(
+          groups: [
+            for (final g in household.groups)
+              if (!g.contains(gazebo) && !g.contains(kitchen)) g,
+            ZoneGroup(coordinator: kitchen, members: [gazebo, kitchen]),
+          ],
+        );
+        await controller.refreshTopology();
+
+        await controller.play(kStations.first);
+        expect(control.lastPlayTarget?.name, 'Kitchen');
+
+        controller.dispose();
+      },
+    );
+
+    test('polling stops when the app is not in front', () async {
+      final controller = buildController(_RecordingControl());
+      await controller.init();
+
+      controller.pausePolling();
+      // Nothing to assert beyond it being safe and idempotent - the value is
+      // that dispose() below finds no timer still pending.
+      controller.pausePolling();
+      controller.dispose();
+    });
+  });
+
   group('update checks', () {
     test('compares versions numerically, not as strings', () {
       expect(UpdateChecker.isNewer('1.1.0', '1.0.0'), isTrue);
@@ -344,7 +426,9 @@ void main() {
 class _FakeDiscovery extends SonosDiscovery {
   _FakeDiscovery(this.household);
 
-  final Household household;
+  /// Mutable, so a test can regroup the house behind the app's back the way
+  /// the other person's phone would.
+  Household household;
 
   @override
   Future<Household> discover({String? seedHost}) async => household;

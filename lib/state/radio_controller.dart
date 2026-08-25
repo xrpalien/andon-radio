@@ -72,7 +72,7 @@ class RadioController extends ChangeNotifier {
 
   void dismissUpdate() {
     _availableUpdate = null;
-    notifyListeners();
+    _safeNotify();
   }
 
   bool get isBusy => _busy;
@@ -102,7 +102,7 @@ class RadioController extends ChangeNotifier {
     await refreshNowPlaying();
     await findSpeakers();
 
-    _poll = Timer.periodic(const Duration(seconds: 10), (_) => _tick());
+    resumePolling();
 
     // Deliberately last, and never awaited by anything the UI depends on:
     // the radio must work whether or not GitHub is reachable.
@@ -113,11 +113,21 @@ class RadioController extends ChangeNotifier {
     final update = await _updates.check();
     if (update == null) return;
     _availableUpdate = update;
-    notifyListeners();
+    _safeNotify();
+  }
+
+  /// Polling is asynchronous, so a tick can still be in flight when the app is
+  /// closed. Notifying a disposed ChangeNotifier throws, which turned closing
+  /// the app mid-poll into a crash.
+  bool _disposed = false;
+
+  void _safeNotify() {
+    if (!_disposed) notifyListeners();
   }
 
   @override
   void dispose() {
+    _disposed = true;
     _poll?.cancel();
     _discovery.dispose();
     _control.dispose();
@@ -136,8 +146,34 @@ class RadioController extends ChangeNotifier {
         DateTime.now().difference(t) < const Duration(seconds: 3);
   }
 
+  /// How often to re-read the household while the app is in front.
+  ///
+  /// Two people use this at once, so anything either of them changes - volume,
+  /// station, which rooms are grouped - has to show up on the other's phone
+  /// without them doing anything. Polling stops entirely in the background, so
+  /// this is both livelier and cheaper than the slower always-on timer it
+  /// replaced.
+  static const _pollInterval = Duration(seconds: 5);
+
+  void resumePolling() {
+    _poll?.cancel();
+    _poll = Timer.periodic(_pollInterval, (_) => _tick());
+    // Don't make them wait a whole interval to see what changed while they
+    // were away - this is the moment the screen is most likely to be wrong.
+    unawaited(_tick());
+  }
+
+  void pausePolling() {
+    _poll?.cancel();
+    _poll = null;
+  }
+
   Future<void> _tick() async {
     await refreshNowPlaying();
+
+    // Order matters: grouping decides which player coordinates, and the
+    // coordinator is who gets asked about transport.
+    if (_busyZoneUuid == null) await _fetchTopology();
     await _refreshTransport();
     // Volume can be changed from the Sonos app, another phone, or the buttons
     // on the speaker itself. Without this the dial silently goes stale, and
@@ -159,7 +195,7 @@ class RadioController extends ChangeNotifier {
       if (volume != _volume || muted != _muted) {
         _volume = volume;
         _muted = muted;
-        notifyListeners();
+        _safeNotify();
       }
     } catch (_) {
       // A dozing player can be slow to answer; keep the last known values.
@@ -171,7 +207,7 @@ class RadioController extends ChangeNotifier {
   Future<void> findSpeakers() async {
     _status = DiscoveryStatus.searching;
     _error = null;
-    notifyListeners();
+    _safeNotify();
 
     final found = await _discovery.discover(
       seedHost: _prefs?.getString(_prefsSeedHost),
@@ -199,18 +235,18 @@ class RadioController extends ChangeNotifier {
 
       await _refreshRoomState();
     }
-    notifyListeners();
+    _safeNotify();
   }
 
   Future<void> selectZone(SonosZone zone) async {
     _selectedZone = zone;
     _error = null;
-    notifyListeners();
+    _safeNotify();
 
     await _prefs?.setString(_prefsZoneUuid, zone.uuid);
     await _prefs?.setString(_prefsSeedHost, zone.host);
     await _refreshRoomState();
-    notifyListeners();
+    _safeNotify();
   }
 
   // --- grouping -------------------------------------------------------------
@@ -241,7 +277,7 @@ class RadioController extends ChangeNotifier {
 
     _busyZoneUuid = zone.uuid;
     _error = null;
-    notifyListeners();
+    _safeNotify();
 
     try {
       if (grouped) {
@@ -260,12 +296,27 @@ class RadioController extends ChangeNotifier {
           : 'Could not remove ${zone.name} from the group.';
     } finally {
       _busyZoneUuid = null;
-      notifyListeners();
+      _safeNotify();
     }
   }
 
   /// Re-read who is grouped with whom, without a full discovery sweep.
   Future<void> refreshTopology() async {
+    await _fetchTopology();
+    await _refreshTransport();
+  }
+
+  /// Cheap description of the current grouping, used to tell whether anything
+  /// actually moved. Rebuilding the room list on every poll would fight the
+  /// user while they are looking at it.
+  String get _topologySignature => _household.groups
+      .map(
+        (g) =>
+            '${g.coordinator.uuid}:${g.members.map((m) => m.uuid).join(",")}',
+      )
+      .join('|');
+
+  Future<void> _fetchTopology() async {
     final host =
         _selectedZone?.host ?? _household.groups.firstOrNull?.coordinator.host;
     if (host == null) return;
@@ -273,14 +324,17 @@ class RadioController extends ChangeNotifier {
     final found = await _discovery.topologyFrom(host);
     if (found == null || found.isEmpty) return;
 
+    final before = _topologySignature;
     _household = found;
-    // Keep pointing at the same room; its group may well have changed.
+
+    // Keep pointing at the same room; its group may well have changed - and if
+    // it has, the coordinator these commands must go to has changed with it.
     final selected = _selectedZone;
     if (selected != null) {
       _selectedZone = found.zoneByUuid(selected.uuid) ?? selected;
     }
-    notifyListeners();
-    await _refreshTransport();
+
+    if (_topologySignature != before) _safeNotify();
   }
 
   // --- playback -------------------------------------------------------------
@@ -295,7 +349,7 @@ class RadioController extends ChangeNotifier {
 
     _busy = true;
     _error = null;
-    notifyListeners();
+    _safeNotify();
 
     try {
       await _control.playStation(target, station);
@@ -316,7 +370,7 @@ class RadioController extends ChangeNotifier {
       _error = 'Could not start ${station.name}.';
     } finally {
       _busy = false;
-      notifyListeners();
+      _safeNotify();
     }
   }
 
@@ -333,7 +387,7 @@ class RadioController extends ChangeNotifier {
     while (DateTime.now().isBefore(deadline)) {
       try {
         _transport = await _control.transportState(target);
-        notifyListeners();
+        _safeNotify();
         if (_transport == TransportState.playing) return true;
         if (_transport == TransportState.stopped) {
           // Stopped after we asked it to play means the stream was refused.
@@ -352,7 +406,7 @@ class RadioController extends ChangeNotifier {
     if (target == null) return;
 
     _busy = true;
-    notifyListeners();
+    _safeNotify();
     try {
       await _control.stop(target);
       _transport = TransportState.stopped;
@@ -360,7 +414,7 @@ class RadioController extends ChangeNotifier {
       _error = e.message;
     } finally {
       _busy = false;
-      notifyListeners();
+      _safeNotify();
     }
   }
 
@@ -378,12 +432,12 @@ class RadioController extends ChangeNotifier {
 
     _volume = value.clamp(0, 100);
     _lastVolumeTouch = DateTime.now();
-    notifyListeners();
+    _safeNotify();
     try {
       await _control.setVolume(zone, _volume);
     } on SonosException catch (e) {
       _error = e.message;
-      notifyListeners();
+      _safeNotify();
     }
   }
 
@@ -393,12 +447,12 @@ class RadioController extends ChangeNotifier {
 
     _muted = !_muted;
     _lastVolumeTouch = DateTime.now();
-    notifyListeners();
+    _safeNotify();
     try {
       await _control.setMute(zone, _muted);
     } on SonosException catch (e) {
       _error = e.message;
-      notifyListeners();
+      _safeNotify();
     }
   }
 
@@ -408,7 +462,7 @@ class RadioController extends ChangeNotifier {
     final fresh = await _api.fetchNowPlaying();
     if (fresh.isNotEmpty) {
       _nowPlaying = fresh;
-      notifyListeners();
+      _safeNotify();
     }
   }
 
@@ -434,7 +488,7 @@ class RadioController extends ChangeNotifier {
       _transport = await _control.transportState(target);
       final uri = await _control.currentUri(target);
       _playingStation = _stationForUri(uri);
-      notifyListeners();
+      _safeNotify();
     } catch (_) {
       // Ignore - the periodic tick will try again.
     }
@@ -456,6 +510,6 @@ class RadioController extends ChangeNotifier {
 
   void clearError() {
     _error = null;
-    notifyListeners();
+    _safeNotify();
   }
 }
