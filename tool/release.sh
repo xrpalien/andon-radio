@@ -82,4 +82,4 @@ echo
 # it will sort itself out.
 echo "Phones that can sideload will offer the update on next open."
 echo "For one with Advanced Protection, push it over ADB:"
-echo "    tool/push-to-device.sh""
+echo "    tool/push-to-device.sh"
