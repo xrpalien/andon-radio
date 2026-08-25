@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sonos players expose their UPnP/SOAP control endpoint over plain HTTP on
+  port 1400, and their addresses are discovered at runtime, so we cannot
+  name them here. Android's <domain> elements match hostnames only - CIDR
+  ranges are not supported - so cleartext is permitted by default and the
+  remote hosts we DO know about are pinned back to HTTPS-only. That keeps
+  the metadata API and artwork from being silently downgraded.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">andonlabs.com</domain>
+        <domain includeSubdomains="true">supabase.co</domain>
+    </domain-config>
+</network-security-config>
